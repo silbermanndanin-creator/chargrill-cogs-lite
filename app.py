@@ -32,6 +32,7 @@ for _k in ("SUPABASE_URL", "SUPABASE_KEY", "ANTHROPIC_API_KEY"):
 import config
 import storage
 import metrics
+import drinks
 
 # ============================ Theme + CSS (ported from the main app) ============================
 if "theme" not in st.session_state:
@@ -229,8 +230,14 @@ def c_invoice_images(saved_at):
     return storage.load_invoice_images(saved_at)
 
 
+@st.cache_data(ttl=120)
+def c_drinks_counts():
+    return storage.load_drinks_counts()
+
+
 def bust():
     c_invoice_images.clear()
+    c_drinks_counts.clear()
     c_invoices.clear()
     c_pos_days.clear()
     config.bust_cache()
@@ -811,7 +818,7 @@ with tab_order:
     _inv = c_invoices()
     _pos = c_pos_days()
     _lines = metrics.explode_lines(_inv)
-    o_bs, o_dr = st.tabs([f"🐟 {config.BLUESEAS_SUPPLIER}", "🥤 Drinks"])
+    o_dr, o_bs = st.tabs(["🥤 Drinks", f"🐟 {config.BLUESEAS_SUPPLIER}"])
 
     # ---- Blueseas: usage learned from history → recommended order + over-order flags ----
     with o_bs:
@@ -863,29 +870,81 @@ with tab_order:
                 st.plotly_chart(_bare_fig(fig, 240), use_container_width=True,
                                 config={"displayModeBar": False})
 
-    # ---- Drinks: per-week baseline scaled to the order's coverage, less on-hand ----
+    # ---- Drinks: per-week pars scaled to the delivery window, less on-hand ----
     with o_dr:
-        st.caption("Baseline is per week. Set how many days this order needs to cover and the "
-                   "quantities scale (per-week × days ÷ 7). Enter on-hand to net it off.")
-        days = st.number_input("Days this order covers", min_value=1, max_value=28, value=7, step=1,
-                               help="7 = a normal weekly order; use fewer if you order more often.")
-        base = pd.DataFrame(config.DRINKS_WEEKLY, columns=["Item", "Per week"])
-        base["On hand"] = 0
-        ed = st.data_editor(
-            base, hide_index=True, use_container_width=True, key="drinks_ed",
-            column_config={
-                "Per week": st.column_config.NumberColumn("Per week", disabled=True),
-                "On hand": st.column_config.NumberColumn("On hand", min_value=0, step=1),
-            })
-        ed = ed.copy()
-        ed["Target"] = (pd.to_numeric(ed["Per week"], errors="coerce").fillna(0) * days / 7.0
-                        ).round().astype(int)
-        ed["Order"] = (ed["Target"] - pd.to_numeric(ed["On hand"], errors="coerce").fillna(0)
-                       ).clip(lower=0).astype(int)
-        st.markdown(f"**Recommended order — covers {days} day(s)**")
-        st.dataframe(ed[["Item", "Per week", "Target", "On hand", "Order"]],
-                     hide_index=True, use_container_width=True)
-        st.caption(f"Total units to order: **{int(ed['Order'].sum())}**")
+        st.caption("'Qnty Needed' is **per-week** usage. Set the delivery window, count the "
+                   "fridge (**QTY on hand**, halves OK), and the app scales each drink to the "
+                   "window and rounds the order **up**.")
+        _today = dt.date.today()
+        _runs = ["Mon order → Wed delivery  ·  last till Sun",
+                 "Thu order → Mon delivery  ·  last till Tue",
+                 "Custom dates"]
+        _def_run = 1 if _today.weekday() in (2, 3, 4) else 0   # Wed/Thu/Fri → the Thu run
+        run = st.radio("Which order run is this?", _runs, index=_def_run, key="drink_run")
+        if run == _runs[0]:                                    # Mon → Wed delivery, last till Sun
+            deliv = drinks.default_delivery(_today, 2)
+            until = deliv + dt.timedelta(days=4)
+        elif run == _runs[1]:                                  # Thu → Mon delivery, last till Tue
+            deliv = drinks.default_delivery(_today, 0)
+            until = deliv + dt.timedelta(days=1)
+        else:                                                  # Custom
+            _cd = drinks.default_delivery(_today)
+            wc1, wc2 = st.columns(2)
+            deliv = wc1.date_input("Delivery date", value=_cd, key="drink_deliv",
+                                   help="When this order arrives.")
+            until = wc2.date_input("Stock must last until", value=_cd + dt.timedelta(days=6),
+                                   key="drink_until", help="Day before the next delivery.")
+        cov_days, weeks = drinks.coverage(_today, until)
+        st.caption(f"📦 Ordering today (**{_today:%a %d %b}**) for **{deliv:%a %d %b}** delivery, "
+                   f"to last until **{until:%a %d %b}** — covering **{cov_days} days "
+                   f"(~{weeks:.1f} weeks)**. Weekly quantities scale to this.")
+
+        _phs = drinks.public_holidays_within("NSW", _today, days=cov_days - 1)
+        if _phs:
+            _names = ", ".join(f"{n} ({d:%a %d %b})" for d, n in _phs)
+            st.warning(f"🎉 Public holiday in this window — {_names}. Deliveries usually shift and "
+                       "the gap is longer, so pick **Custom dates** and set the delivery + 'last "
+                       "until' from your supplier's schedule. (Per-week quantities don't change — "
+                       "the longer window does the work.)")
+
+        dsaved = c_drinks_counts()
+        drows = [{"Item": it["item"], "QTY on hand": float(dsaved.get(it["item"], 0.0) or 0)}
+                 for it in drinks.DRINK_ITEMS]
+        dedit = st.data_editor(
+            pd.DataFrame(drows), hide_index=True, use_container_width=True, key="drink_edit",
+            column_config={"Item": st.column_config.TextColumn(disabled=True),
+                           "QTY on hand": st.column_config.NumberColumn(min_value=0.0, step=0.5)})
+        dcounts = {}
+        for _, r in dedit.iterrows():
+            v = pd.to_numeric(r["QTY on hand"], errors="coerce")
+            dcounts[r["Item"]] = 0.0 if pd.isna(v) else float(v)
+
+        dsave, dreset, dinfo = st.columns([1, 1, 2])
+        if dsave.button("💾 Save counts", key="drink_save"):
+            storage.save_drinks_counts(dcounts)
+            bust()
+            st.success("Counts saved.")
+        if dreset.button("🔄 Reset to 0", key="drink_reset"):
+            storage.save_drinks_counts({})
+            bust()
+            st.session_state.pop("drink_edit", None)
+            st.success("Counts reset to 0.")
+            st.rerun()
+        dinfo.caption("Saved so a reload on your phone won't wipe your count. "
+                      "**Reset to 0** clears it for a fresh stocktake.")
+
+        dorder = drinks.build_order(dcounts, weeks=weeks)
+        st.divider()
+        st.markdown(f"### 🧾 Drinks order to place  ·  _~{weeks:.1f} wk window_")
+        if not dorder:
+            st.success("Nothing to order — on-hand already covers the whole window.")
+        else:
+            st.caption("Listed in the Coca-Cola order-site sequence — follow it straight down "
+                       "the supplier's 'Frequently Ordered' page.")
+            st.dataframe(pd.DataFrame([{"Order": f"{e['order']:g}", "Item": e["item"]} for e in dorder]),
+                         hide_index=True, use_container_width=True)
+            st.caption("Copy-ready (tap the ⧉ icon top-right):")
+            st.code(drinks.order_text(dorder), language=None)
 
 
 # ============================ Settings ============================

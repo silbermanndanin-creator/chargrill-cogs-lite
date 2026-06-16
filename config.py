@@ -234,39 +234,9 @@ def blueseas_main(description) -> str | None:
     return None
 
 
-# ---- Drinks order pad ----
-# Baseline order quantities PER WEEK (Coca-Cola Amatil range). The Drinks ordering tab
-# scales these by how many days the order needs to cover (qty x days/7), and nets off any
-# on-hand the user enters. Edit per store as the range/usage changes.
+# ---- Drinks ordering ----
+# The per-week drink pars + Coca-Cola order-site sequence live in drinks.py (DRINK_ITEMS).
+# The Drinks ordering tab scales the pars to the delivery window and nets off the on-hand
+# count (persisted in the drinks_counts table). DRINKS_SUPPLIER is the COGS category drinks
+# fall under (for reference; ordering reads drinks.py, not invoices).
 DRINKS_SUPPLIER = "Drinks"
-DRINKS_WEEKLY = [
-    ("Coke 390ml", 6),
-    ("Coke Zero 390ml", 7),
-    ("Diet Coke 390ml", 2),
-    ("Sprite 390ml", 2),
-    ("Fanta 390ml", 2),
-    ("Coke 600ml", 5),
-    ("Coke Zero 600ml", 6),
-    ("Diet Coke 600ml", 3),
-    ("Vanilla Coke Zero 600ml", 2),
-    ("Fanta 600ml", 3),
-    ("Sprite 600ml", 3),
-    ("Sprite Zero 600ml", 2),
-    ("Fanta Lemon 600ml", 2),
-    ("Pasito 600ml", 2),
-    ("Sparkling Water", 2),
-    ("Water", 7),
-    ("Peach Fuze Tea", 2),
-    ("Lemon Fuze Tea", 2),
-    ("Mango Fuze Tea", 2),
-    ("Purple Powerade", 2),
-    ("Blue Powerade", 2),
-    ("Yellow Powerade", 2),
-    ("Red Powerade", 2),
-    ("Orange Powerade", 2),
-    ("Coke 1.25L", 2),
-    ("Coke Zero 1.25L", 2),
-    ("Water 1.5L", 2),
-    ("Apple Juice", 2),
-    ("Orange Juice", 2),
-]

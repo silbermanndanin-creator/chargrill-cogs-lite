@@ -241,6 +241,23 @@ def save_pos_day(date, total_incl_gst, doordash=0.0, ubereats=0.0,
     }, on_conflict="date").execute()
 
 
+# ---------------- drinks order counts (persisted fridge count) ----------------
+def load_drinks_counts() -> dict:
+    rows = sb_client().table("drinks_counts").select("*").execute().data or []
+    return {r["item"]: float(r.get("on_hand") or 0) for r in rows}
+
+
+def save_drinks_counts(counts: dict):
+    """Replace the whole on-hand count. Empty dict (Reset to 0) clears it."""
+    sb = sb_client()
+    sb.table("drinks_counts").delete().neq("item", "\x00__none__").execute()
+    now = dt.datetime.now().isoformat(timespec="seconds")
+    payload = [{"item": k, "on_hand": float(v or 0), "updated_at": now}
+               for k, v in (counts or {}).items()]
+    if payload:
+        sb.table("drinks_counts").insert(payload).execute()
+
+
 def load_pos_days() -> pd.DataFrame:
     rows = sb_client().table("pos_days").select("*").execute().data or []
     df = pd.DataFrame(rows)

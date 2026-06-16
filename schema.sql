@@ -62,6 +62,14 @@ alter table pos_days add column if not exists tyro numeric;
 alter table pos_days add column if not exists bite numeric;
 alter table pos_days add column if not exists cash numeric;
 
+-- Drinks order pad: on-hand fridge count from the latest drinks stocktake. The whole map
+-- is replaced on each Save (one row per item); the order qty is derived live in the app.
+create table if not exists drinks_counts (
+    item        text primary key,
+    on_hand     numeric,
+    updated_at  text
+);
+
 -- The app connects with the service_role key (server-side on Streamlit Cloud), so Row
 -- Level Security is not required. Keep this Supabase project's anon key out of the app —
 -- only SUPABASE_KEY (service_role) is used.
