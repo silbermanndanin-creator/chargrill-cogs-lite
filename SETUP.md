@@ -45,8 +45,14 @@ store. Two stores fit entirely on free tiers.
 
 ### 2. Deploy the app (Streamlit Cloud)
 1. Go to <https://share.streamlit.io> → sign in with GitHub → **Create app**.
-2. Point it at the template repo, branch `main`, main file `app.py`. Give the app a
-   URL that names the store (e.g. `cogs-bondi`).
+2. Point it at the repo, branch `master`, and a **per-store entry file** — `Pagewood.py`,
+   `Drummoyne.py`, etc. (copy one to `<Store>.py` for a new store). Give the app a URL that
+   names the store (e.g. `cogs-bondi`).
+
+   > ⚠️ **Each store needs its own entry file.** Streamlit Community Cloud treats
+   > (repo + branch + main file) as one app — if two stores both use `app.py`, the second
+   > deploy just reopens the first. The entry files run the same code; the database is chosen
+   > by each app's own `SUPABASE_*` secrets, not the filename.
 3. Before deploying, open **Advanced settings → Secrets** and paste (fill in your values):
    ```toml
    APP_PASSWORD = "choose-a-password-for-this-store"
