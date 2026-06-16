@@ -142,3 +142,54 @@ def effective_date(d: dt.date, supplier: str) -> dt.date:
     """Date used for week/month bucketing. The lite app buckets every invoice on its
     own date (no order-ahead delivery shift); kept as a hook for parity with storage."""
     return d
+
+
+# ---- Baida chicken tub model ----
+# Baida invoices list the number of individual CHICKENS (unit "ea"); tubs = chickens / per_tub.
+# The whole/charcoal bird tub holds 8; the split tub holds 12. Lines are classed by keyword
+# in the description; 'split' is checked first because split lines can also say 'RSPCA'.
+# The category that holds Baida is whatever the store named its chicken category — by default
+# "Chicken" (see DEFAULT_SUPPLIERS). Rename BAIDA_SUPPLIER if a store calls it something else.
+BAIDA_SUPPLIER = "Chicken"
+DEPOSIT_KEYWORD = "deposit"
+TUB_TYPES = {
+    "Split": {"keywords": ["split"], "per_tub": 12},
+    "RSPCA": {"keywords": ["charcoal", "whole"], "per_tub": 8},
+}
+
+
+def tub_type(description) -> str | None:
+    """Return 'Split' | 'RSPCA' | None for a Baida line description (Split wins ties)."""
+    d = (description or "").lower()
+    for name, cfg in TUB_TYPES.items():
+        if any(k in d for k in cfg["keywords"]):
+            return name
+    return None
+
+
+# ---- Baida order-vs-turnover guide (winter weekly) ----
+# For a week's gross sales ($ incl GST), the recommended number of whole/charcoal birds
+# ('RSPCA' tubs) and split chickens. Used to flag when an order runs high for the takings.
+# (sales, whole_birds, split_chickens) — edit per store if their guide differs.
+BAIDA_ORDER_GUIDE = [
+    (65000, 520, 192), (70000, 560, 204), (75000, 600, 216),
+    (80000, 664, 228), (85000, 720, 240), (90000, 736, 252),
+]
+BAIDA_OVER_PCT = 0.10  # flag when actual chickens exceed the guide by >10%
+
+
+def baida_recommended(weekly_sales):
+    """(whole_birds, split_chickens) recommended for a week's gross sales, linearly
+    interpolated within the guide and clamped to its range. None if no/zero sales."""
+    g = BAIDA_ORDER_GUIDE
+    if not g or not weekly_sales or weekly_sales <= 0:
+        return None
+    if weekly_sales <= g[0][0]:
+        return (float(g[0][1]), float(g[0][2]))
+    if weekly_sales >= g[-1][0]:
+        return (float(g[-1][1]), float(g[-1][2]))
+    for (s0, b0, sp0), (s1, b1, sp1) in zip(g, g[1:]):
+        if s0 <= weekly_sales <= s1:
+            t = (weekly_sales - s0) / (s1 - s0)
+            return (b0 + t * (b1 - b0), sp0 + t * (sp1 - sp0))
+    return (float(g[-1][1]), float(g[-1][2]))
