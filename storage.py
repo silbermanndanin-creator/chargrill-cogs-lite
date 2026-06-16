@@ -143,7 +143,11 @@ def delete_invoice(saved_at: str):
 
 
 # ---------------- daily takings ----------------
-def save_pos_day(date, total_incl_gst, doordash=0.0, ubereats=0.0):
+def save_pos_day(date, total_incl_gst, doordash=0.0, ubereats=0.0,
+                 tyro=0.0, bite=0.0, cash=0.0):
+    """One finalised day of takings. DoorDash + UberEats are commission-netted into
+    adjusted_*; Tyro / Bite (app payments) / Cash are recorded at full value (they're
+    already part of the total) for the breakdown record."""
     d = pd.to_datetime(date).date()
     iso_year, iso_week, _ = d.isocalendar()
     adj_incl, adj_ex = config.delivery_adjust(total_incl_gst, doordash, ubereats)
@@ -154,6 +158,9 @@ def save_pos_day(date, total_incl_gst, doordash=0.0, ubereats=0.0):
         "total_incl_gst": float(total_incl_gst or 0),
         "doordash": float(doordash or 0),
         "ubereats": float(ubereats or 0),
+        "tyro": float(tyro or 0),
+        "bite": float(bite or 0),
+        "cash": float(cash or 0),
         "adjusted_incl_gst": adj_incl,
         "adjusted_ex_gst": adj_ex,
         "saved_at": dt.datetime.now().isoformat(timespec="seconds"),
@@ -163,7 +170,8 @@ def save_pos_day(date, total_incl_gst, doordash=0.0, ubereats=0.0):
 def load_pos_days() -> pd.DataFrame:
     rows = sb_client().table("pos_days").select("*").execute().data or []
     df = pd.DataFrame(rows)
-    for col in ("total_incl_gst", "doordash", "ubereats", "adjusted_incl_gst", "adjusted_ex_gst"):
+    for col in ("total_incl_gst", "doordash", "ubereats", "tyro", "bite", "cash",
+                "adjusted_incl_gst", "adjusted_ex_gst"):
         if col in df:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
     return df

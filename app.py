@@ -471,32 +471,89 @@ with tab_inv:
 
 # ============================ Daily takings ============================
 with tab_pos:
-    st.markdown("#### 💰 Enter a day's takings")
-    st.caption("Enter the day's total (incl GST). DoorDash / UberEats are netted of the platform "
-               f"commission ({config.delivery_commission()*100:.0f}%, set in Settings) before the COGS %.")
+    st.markdown("#### 💰 Daily takings")
+    st.caption("Upload the POS end-of-day slip to auto-fill, or type it in. UberEats & DoorDash are "
+               f"netted of the platform commission ({config.delivery_commission()*100:.0f}%, set in "
+               "Settings) before the COGS %; Tyro, Bite Business (app payments) and Cash are recorded "
+               "at full value.")
+
+    # ---- optional: read an end-of-day slip photo to pre-fill the form ----
+    slip = st.file_uploader("End-of-day slip photo / PDF (optional)",
+                            type=["jpg", "jpeg", "png", "pdf"], key="pos_slip")
+    if slip and st.button("📖 Read slip"):
+        import extract
+        b = slip.read()
+        mt = "application/pdf" if slip.name.lower().endswith(".pdf") else \
+            ("image/png" if slip.name.lower().endswith(".png") else "image/jpeg")
+        with st.spinner("Reading slip…"):
+            try:
+                ps = extract.extract_pos_slip(b, mt)
+                # seed the form widgets (this handler runs before they're instantiated below)
+                if ps.business_date:
+                    try:
+                        st.session_state["t_date"] = pd.to_datetime(ps.business_date).date()
+                    except Exception:
+                        pass
+                st.session_state["t_total"] = float(ps.total_incl_gst or 0)
+                st.session_state["t_tyro"] = float(ps.tyro_incl_gst or 0)
+                st.session_state["t_bite"] = float(ps.bite_incl_gst or 0)
+                st.session_state["t_ue"] = float(ps.ubereats_incl_gst or 0)
+                st.session_state["t_dd"] = float(ps.doordash_incl_gst or 0)
+                st.session_state["t_cash"] = float(ps.cash_incl_gst or 0)
+                st.session_state["t_conf"] = ps.confidence
+                st.rerun()
+            except Exception as e:
+                st.error(f"Couldn't read the slip: {e}")
+
     pc1, pc2 = st.columns([2, 3])
     with pc1:
-        d = st.date_input("Date", dt.date.today(), key="pos_date")
-        total = st.number_input("Total takings (incl GST)", min_value=0.0, step=10.0, format="%.2f")
-        dd = st.number_input("DoorDash (incl GST)", min_value=0.0, step=10.0, format="%.2f")
-        ue = st.number_input("UberEats (incl GST)", min_value=0.0, step=10.0, format="%.2f")
+        if "t_date" not in st.session_state:
+            st.session_state["t_date"] = dt.date.today()
+        d = st.date_input("Date", key="t_date")
+        total = st.number_input("Overall total (incl GST)", min_value=0.0, step=10.0,
+                                format="%.2f", key="t_total")
+        st.markdown("**Breakdown** (incl GST)")
+        tyro = st.number_input("Tyro (card)", min_value=0.0, step=10.0, format="%.2f", key="t_tyro")
+        bite = st.number_input("Bite Business (app payments)", min_value=0.0, step=10.0,
+                               format="%.2f", key="t_bite")
+        ue = st.number_input("UberEats", min_value=0.0, step=10.0, format="%.2f", key="t_ue")
+        dd = st.number_input("DoorDash (delivery)", min_value=0.0, step=10.0, format="%.2f", key="t_dd")
+        cash = st.number_input("Cash", min_value=0.0, step=10.0, format="%.2f", key="t_cash")
+        _conf = st.session_state.get("t_conf")
+        if _conf and _conf != "high":
+            st.caption(f"Slip read confidence: {_conf} — check the figures above.")
         if st.button("💾 Save takings", type="primary"):
-            storage.save_pos_day(d, total, dd, ue)
+            storage.save_pos_day(d, total, dd, ue, tyro, bite, cash)
             bust()
             _, adj_ex = config.delivery_adjust(total, dd, ue)
+            st.session_state.pop("t_conf", None)
             st.success(f"Saved {d:%a %d %b}: ${total:,.0f} incl GST → ${adj_ex:,.0f} ex-GST after delivery cut.")
             st.rerun()
+
     with pc2:
-        st.markdown("##### Recent days")
+        st.markdown("##### Highlights & record")
         posd = c_pos_days()
         if posd.empty:
             st.caption("No takings entered yet.")
         else:
-            recent = posd.sort_values("date", ascending=False).head(14)[
-                ["date", "total_incl_gst", "doordash", "ubereats", "adjusted_ex_gst"]].rename(columns={
-                "date": "Date", "total_incl_gst": "Total incl", "doordash": "DoorDash",
-                "ubereats": "UberEats", "adjusted_ex_gst": "Ex-GST (net)"})
-            st.dataframe(recent, hide_index=True, use_container_width=True)
+            recent = posd.sort_values("date", ascending=False).copy()
+            for c in ("total_incl_gst", "tyro", "bite", "ubereats", "doordash", "cash", "adjusted_ex_gst"):
+                if c not in recent:
+                    recent[c] = 0.0
+            win = recent.head(14)
+            deliv = float(win["ubereats"].sum() + win["doordash"].sum())
+            hl = st.columns(5)
+            hl[0].metric("Total (14d)", f"${win['total_incl_gst'].sum():,.0f}")
+            hl[1].metric("Tyro (card)", f"${win['tyro'].sum():,.0f}")
+            hl[2].metric("Bite (app)", f"${win['bite'].sum():,.0f}")
+            hl[3].metric("Delivery", f"${deliv:,.0f}", help="UberEats + DoorDash")
+            hl[4].metric("Cash", f"${win['cash'].sum():,.0f}")
+            show = recent.head(21)[["date", "total_incl_gst", "tyro", "bite", "ubereats",
+                                    "doordash", "cash", "adjusted_ex_gst"]].rename(columns={
+                "date": "Date", "total_incl_gst": "Overall", "tyro": "Tyro", "bite": "Bite",
+                "ubereats": "Uber", "doordash": "DoorDash", "cash": "Cash",
+                "adjusted_ex_gst": "Ex-GST net"})
+            st.dataframe(show, hide_index=True, use_container_width=True)
 
 
 # ============================ Invoices list ============================

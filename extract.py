@@ -294,15 +294,23 @@ def _verify_line_math(data: InvoiceData) -> None:
 # ---------------- POS end-of-day takings slip ----------------
 POS_SYSTEM = """You read a POS 'End Of Day' / 'Finalised Takings' slip from an Australian \
 hospitality venue (Lightspeed). Use the top SUMMARY section and its 'Recorded' column \
-(NOT the 'Counted' column). All amounts INCLUDE GST.
+(NOT the 'Counted' column); if needed, the 'Breakdown by payment means' section lower on \
+the slip shows the same figures. All amounts INCLUDE GST.
 
 Return:
 - business_date: the date printed on the slip, ISO format YYYY-MM-DD.
-- total_incl_gst: the 'Total' value in the Recorded column (overall takings for the day).
-- doordash_incl_gst: the Recorded amount on the 'Doordash' (or 'Doordash - Deliverect') \
-line. 0 if there is no such line.
+- total_incl_gst: the overall 'Total' in the Recorded column (the day's total takings).
+- tyro_incl_gst: the amount on the 'Tyro' (or 'Tyro EFTPOS' / card terminal) line — the \
+Recorded column, or the Tyro total under 'Breakdown by payment means'. 0 if no such line.
+- bite_incl_gst: the amount on the 'Bite Business' line (app payments) — the Recorded \
+column, or the 'Bite Business' total under 'Breakdown by payment means'. This is its OWN \
+line — do NOT use the separate 'App Payments' / 'App Ordering' lines. 0 if no such line.
 - ubereats_incl_gst: the Recorded amount on the 'UberEats' (or 'UberEats - Deliverect') \
 line. 0 if there is no such line.
+- doordash_incl_gst: the Recorded amount on the 'Doordash' (or 'Doordash - Deliverect') \
+line. 0 if there is no such line.
+- cash_incl_gst: the 'Cash' line amount — the Recorded column, or the Cash total under \
+'Breakdown by payment means'. 0 if there is no Cash line.
 - confidence: "high" if clear and the figures reconcile, else "medium"/"low".
 Return numbers as plain decimals (no $ or thousands separators)."""
 
@@ -310,8 +318,11 @@ Return numbers as plain decimals (no $ or thousands separators)."""
 class PosSlip(BaseModel):
     business_date: str
     total_incl_gst: float
-    doordash_incl_gst: float = 0.0
+    tyro_incl_gst: float = 0.0
+    bite_incl_gst: float = 0.0
     ubereats_incl_gst: float = 0.0
+    doordash_incl_gst: float = 0.0
+    cash_incl_gst: float = 0.0
     confidence: str
 
 

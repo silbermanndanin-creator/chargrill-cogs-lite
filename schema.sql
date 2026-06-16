@@ -47,13 +47,20 @@ create table if not exists pos_days (
     date              text primary key,   -- YYYY-MM-DD
     iso_week          text,
     month             text,
-    total_incl_gst    numeric,
-    doordash          numeric,
-    ubereats          numeric,
+    total_incl_gst    numeric,            -- overall takings (incl GST)
+    doordash          numeric,            -- delivery; commission-netted into adjusted_*
+    ubereats          numeric,            -- delivery; commission-netted into adjusted_*
+    tyro              numeric,            -- card terminal (full value)
+    bite              numeric,            -- Bite Business / app payments (full value)
+    cash              numeric,            -- cash takings (full value)
     adjusted_incl_gst numeric,
-    adjusted_ex_gst   numeric,
+    adjusted_ex_gst   numeric,            -- revenue the COGS % divides by
     saved_at          text
 );
+-- If pos_days already exists from an earlier setup, add the breakdown columns:
+alter table pos_days add column if not exists tyro numeric;
+alter table pos_days add column if not exists bite numeric;
+alter table pos_days add column if not exists cash numeric;
 
 -- The app connects with the service_role key (server-side on Streamlit Cloud), so Row
 -- Level Security is not required. Keep this Supabase project's anon key out of the app —
